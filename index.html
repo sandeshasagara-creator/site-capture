@@ -668,15 +668,17 @@ function handlePhoto(event) {
   reader.onload = function(e) {
     const img = new Image();
     img.onload = function() {
-      // Compress to max 400px, quality 0.25 → ~8-12KB — safe for GET URL param
-      const MAX = 400;
+      // Compress aggressively: max 150px, quality 0.2 → ~2-3KB → safe URL param
+      const MAX = 150;
       let w = img.width, h = img.height;
       if (w > h) { h = Math.round(h * MAX / w); w = MAX; }
       else { w = Math.round(w * MAX / h); h = MAX; }
       const canvas = document.createElement("canvas");
       canvas.width = w; canvas.height = h;
       canvas.getContext("2d").drawImage(img, 0, 0, w, h);
-      photos.push(canvas.toDataURL("image/jpeg", 0.25));
+      // Store full data URL for thumbnail display
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.2);
+      photos.push(dataUrl);
       renderThumbs();
     };
     img.src = e.target.result;
@@ -737,18 +739,19 @@ function submitData() {
   Object.keys(payload).forEach(k => params.append(k, payload[k]));
   fetch(SHEET_URL + "?" + params.toString(), { method: "GET", mode: "no-cors" }).catch(()=>{});
 
-  // Send each photo as a separate GET request — same method confirmed working for row data
-  // Photos are compressed to ~10KB each, safe as URL parameters
+  // Send each photo via GET — compressed to ~2KB, base64url encoded (URL-safe)
   photos.forEach(function(photoData, i) {
-    const photoParams = new URLSearchParams({
-      action: "photo",
-      timestamp: ts,
-      site_id: selectedSite._id,
-      site_name: selectedSite.site_name,
-      photo_index: String(i),
-      photo_data: photoData.split(",")[1]
-    });
-    fetch(SHEET_URL + "?" + photoParams.toString(), { method: "GET", mode: "no-cors" }).catch(()=>{});
+    // Convert standard base64 to URL-safe base64 (no +, /, = chars that break URLs)
+    const b64 = photoData.split(",")[1];
+    const b64url = b64.replace(/\+/g,"-").replace(/\//g,"_").replace(/=/g,"");
+    const url = SHEET_URL
+      + "?action=photo"
+      + "&timestamp=" + encodeURIComponent(ts)
+      + "&site_id=" + encodeURIComponent(selectedSite._id)
+      + "&site_name=" + encodeURIComponent(selectedSite.site_name)
+      + "&photo_index=" + i
+      + "&photo_data=" + b64url;
+    fetch(url, { method: "GET", mode: "no-cors" }).catch(()=>{});
   });
 
   // Show success after 800ms — never block on network
