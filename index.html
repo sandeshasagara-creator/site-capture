@@ -713,7 +713,7 @@ async function submitData() {
       const fd = new FormData();
       Object.keys(payload).forEach(k => fd.append(k, payload[k]));
       if (photoBase64) fd.append("photo", photoBase64);
-      await fetch(SHEET_URL, { method: "POST", body: fd, mode: "no-cors" });
+      await fetch(SHEET_URL, { method: "POST", body: fd });
     } catch (err) {
       // Silently saved locally — will show in export
     }
