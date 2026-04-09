@@ -513,7 +513,7 @@ const SHEET_URL = "https://script.google.com/macros/s/AKfycbwO04nmo7O-PFpvlNyjQI
 // ---- STATE ----
 let selectedSite = null;
 let gpsData = null;
-let photos = []; // up to 5 photos
+let photos = []; // array of base64 strings, max 5
 let sessionCount = 0;
 
 // ---- INIT: CHECK FOR SAVED LOGIN ----
@@ -676,12 +676,13 @@ function renderThumbs() {
   thumbs.innerHTML = photos.map((p, i) =>
     '<div style="position:relative;display:inline-block;">' +
     '<img src="' + p + '" class="photo-thumb">' +
-    '<button onclick="removePhoto(' + i + ')" style="position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;background:var(--red);color:white;border:none;cursor:pointer;font-size:11px;">&#x2715;</button>' +
+    '<button onclick="removePhoto(' + i + ')" style="position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;background:var(--red);color:white;border:none;cursor:pointer;font-size:11px;line-height:1;">&#x2715;</button>' +
     '</div>'
   ).join("");
-  document.getElementById("photoAddBtn").style.display = photos.length >= 5 ? "none" : "flex";
-  document.getElementById("photoCount").textContent = photos.length >= 5
-    ? "5 of 5 photos added"
+  const addBtn = document.getElementById("photoAddBtn");
+  const countEl = document.getElementById("photoCount");
+  addBtn.style.display = photos.length >= 5 ? "none" : "flex";
+  countEl.textContent = photos.length >= 5 ? "5 of 5 photos added"
     : (photos.length > 0 ? photos.length + " of 5 — tap to add more" : "Up to 5 photos");
 }
 function removePhoto(idx) {
@@ -702,8 +703,9 @@ function submitData() {
   document.getElementById("submittingMsg").classList.add("visible");
   document.getElementById("submitBtn").disabled = true;
 
+  const ts = new Date().toISOString();
   const payload = {
-    timestamp: new Date().toISOString(),
+    timestamp: ts,
     technician_name: tech.name,
     technician_id: tech.id,
     site_id: selectedSite._id,
@@ -724,17 +726,31 @@ function submitData() {
   sessionCount++;
   document.getElementById("sessionCountText").textContent = sessionCount + " submitted this session";
 
-  // Fire-and-forget to Google Sheet — do NOT await, do NOT block UI
+  // Step 1: Send row data via GET (fire and forget)
   const params = new URLSearchParams();
   Object.keys(payload).forEach(k => params.append(k, payload[k]));
   fetch(SHEET_URL + "?" + params.toString(), { method: "GET", mode: "no-cors" }).catch(() => {});
 
-  // Show success immediately after 800ms regardless of network response
+  // Step 2: Send each photo as separate POST to Apps Script for Google Drive upload
+  photos.forEach(function(photoData, i) {
+    const fd = new FormData();
+    fd.append("action", "photo");
+    fd.append("timestamp", ts);
+    fd.append("site_id", selectedSite._id);
+    fd.append("site_name", selectedSite.site_name);
+    fd.append("photo_index", i);
+    // Strip base64 header before sending
+    fd.append("photo_data", photoData.split(",")[1]);
+    fetch(SHEET_URL, { method: "POST", body: fd, mode: "no-cors" }).catch(() => {});
+  });
+
+  // Show success after 800ms — do not wait for network
   setTimeout(function() {
     document.getElementById("submittingMsg").classList.remove("visible");
     document.getElementById("successDetail").innerHTML =
       "<strong>" + payload.site_name + "</strong><br>" +
-      payload.latitude + ", " + payload.longitude + "<br>Accuracy: " + payload.gps_accuracy_m + "m";
+      payload.latitude + ", " + payload.longitude + "<br>Accuracy: " + payload.gps_accuracy_m + "m" +
+      (photos.length > 0 ? "<br>" + photos.length + " photo(s) uploading to Drive..." : "");
     showScreen("screenSuccess");
     document.getElementById("submitBtn").disabled = false;
   }, 800);
@@ -758,7 +774,7 @@ function nextSite() {
   document.getElementById("gpsCaptureBtn").disabled = false;
   document.getElementById("submitBtn").disabled = false;
   document.getElementById("photoThumbs").innerHTML = "";
-  document.getElementById("photoAddBtn").style.display = "flex";
+  if(document.getElementById("photoAddBtn")) document.getElementById("photoAddBtn").style.display = "flex";
   document.getElementById("photoCount").textContent = "Up to 5 photos";
   document.getElementById("photoInput").value = "";
   showScreen("screenCapture");
